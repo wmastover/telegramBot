@@ -22,6 +22,7 @@ class Scraper():
 
         self.client = TelegramClient(self.phone, self.api_id, self.api_hash)
         self.groups=[]
+        self.group = "none"
 
     def connect(self):
         #connecting to telegram and checking if you are already authorized. 
@@ -62,7 +63,9 @@ class Scraper():
 
         #choose which group you want to scrape  members:
         for i,g in enumerate(self.groups):
-            print(str(i) + '- ' + g.title)
+            
+            if g.title == "Frontdoor":
+                self.group = g
             
      
     def checkDate(self, date):
@@ -77,11 +80,10 @@ class Scraper():
     
     def getUsers(self):
         # with this method you will get group all members to csv file that you choosed group.
+       
         
-        g_index = input("Please! Enter a Number: ")
-        target_group=self.groups[int(g_index)]
-
-
+        print(self.group.title)
+        
         offset_id = 0
         limit = 100
         all_messages = []
@@ -91,7 +93,7 @@ class Scraper():
         while True:
             print("Current Offset ID is:", offset_id, "; Total Messages:", total_messages)
             history = self.client(GetHistoryRequest(
-                peer=target_group,
+                peer=self.group,
                 offset_id=offset_id,
                 offset_date=None,
                 add_offset=0,
@@ -114,7 +116,7 @@ class Scraper():
         todaysActiveUsers = []
 
         
-        with open(target_group.title+"Messages.csv","w",encoding='UTF-8') as f:#Enter your file name.
+        with open(self.group.title+"Messages.csv","w",encoding='UTF-8') as f:#Enter your file name.
             
             for message in all_messages:
                 messageDate = str(message.get("date")).split(" ")[0]
@@ -152,6 +154,9 @@ class Scraper():
 
     def searchAirtable(self,userTags):
         import requests
+        from datetime import datetime
+
+        today = str(datetime.today().strftime('%Y-%d-%m'))
 
         # Replace with your Airtable API key
         api_key = 'keyKxJeKUVJjLloFI'
@@ -165,41 +170,41 @@ class Scraper():
         # Replace with the name of the field you want to search in
         field_name = 'telegramHandle'
 
-        # Replace with the value you want to search for
-        search_value = '@ashprabaker'
-
+        for tag in userTags:
         # Construct the URL for the search
-        url = f'https://api.airtable.com/v0/{base_id}/{table_name}?filterByFormula=({field_name}="{search_value}")'
+            tag = tag.replace("@", "")
+            tag = "@" + tag
+            url = f'https://api.airtable.com/v0/{base_id}/{table_name}?filterByFormula=({field_name}="{tag}")'
 
-        # Execute the search
-        response = requests.get(url, headers={'Authorization': 'Bearer ' + api_key})
+            # Execute the search
+            response = requests.get(url, headers={'Authorization': 'Bearer ' + api_key})
 
-        # Parse the JSON response
-        responseData = response.json()
+            # Parse the JSON response
+            responseData = response.json()
 
-        print(responseData)
+            # Get the first record that matches the search
+            record = responseData['records'][0]
 
-        # Get the first record that matches the search
-        record = responseData['records'][0]
+            # Get the ID of the record
+            record_id = record['id']
 
-        # Get the ID of the record
-        record_id = record['id']
+            # Replace with the name of the field you want to input the value in
+            input_field_name = 'activity'
 
-        # Replace with the name of the field you want to input the value in
-        input_field_name = 'activity'
+            # Replace with the value you want to input
+            input_value = today
 
-        # Replace with the value you want to input
-        input_value = '0'
+            # Construct the URL for inputting the value
+            url = f'https://api.airtable.com/v0/{base_id}/{table_name}/{record_id}'
+            
+            # Execute the update
+            response = requests.patch(url, json={"fields": {input_field_name: input_value}}, headers={'Authorization': 'Bearer ' + api_key})
 
-        # Construct the URL for inputting the value
-        url = f'https://api.airtable.com/v0/{base_id}/{table_name}/{record_id}'
-        print(url)
-        # Execute the update
-        response = requests.patch(url, json={input_field_name: input_value}, headers={'Authorization': 'Bearer ' + api_key})
+            # Print the status code of the response
+            print(response)
 
-        # Print the status code of the response
-        print(response)
-        print(requests.get(url, headers={'Authorization': 'Bearer ' + api_key}).json())
+            # print(requests.get(url, headers={'Authorization': 'Bearer ' + api_key}).json())
+
 
 
 
@@ -211,5 +216,4 @@ if __name__ == '__main__':
     telegram.getGroups()
     users = telegram.getUsers()
     userTags = telegram.getTelegramTags(users)
-    print(userTags)
     telegram.searchAirtable(userTags)
