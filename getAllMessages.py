@@ -2,14 +2,7 @@ from telethon.sync import TelegramClient
 from telethon.tl.functions.messages import GetDialogsRequest
 from telethon.tl.types import InputPeerEmpty
 from telethon.tl.functions.messages import (GetHistoryRequest)
-from telethon.tl.types import (
-PeerChannel
-)
 import pandas as pd
-
-
-import csv
-
 
 class Scraper():
     def __init__(self):
@@ -70,18 +63,25 @@ class Scraper():
      
     def checkDate(self, date):
             from datetime import datetime
-            today = str(datetime.today().strftime('%Y-%m-%d'))
+            from datetime import timedelta
+            from pytz import timezone
 
+            today = datetime.today()
             
-            if today == date:
+            offset = timedelta(days = 30)
+            
+            # set threshold to 2 weeks ago
+
+            threshold = today - offset 
+
+            if date > timezone("UTC").localize(threshold):
                 return(True)
             else:
                 return(False)
     
-    def getUsers(self):
+    def getMessages(self):
         # with this method you will get group all members to csv file that you choosed group.
        
-        
         print(self.group.title)
         
         offset_id = 0
@@ -113,47 +113,60 @@ class Scraper():
                 break
 
         
-        todaysActiveUsers = []
+        messages= []
 
         
         with open(self.group.title+"Messages.csv","w",encoding='UTF-8') as f:#Enter your file name.
             
             for message in all_messages:
-                messageDate = str(message.get("date")).split(" ")[0]
+                messageDate = message.get("date")
                 
 
                 if self.checkDate(messageDate):
                     
                     userId = message.get("from_id").get("user_id")
-                    print( userId )
+                    date = str(message.get("date")).split(" ")[0]
+                    message = {
+                        "userId": userId,
+                        "date": date,
+                    }
+                    
+                    messages.append(message)
+        
+        return(messages)
 
-                    todaysActiveUsers.append(str(userId))
 
-        return(todaysActiveUsers)
-
-
-    def getTelegramTags(self,users):
+    def getTelegramTags(self,messages):
 
         print("comparing user Ids with telegram tags ........")
         data = pd.read_csv("FrontdoorMembers.csv",  engine='python')
         data_dict = data.to_dict(orient="records")
         
 
-        activeUserTags = [ ]
+        messagesWithTags = [ ]
+        seenTags = []
+        for message in messages:
+            print(message)
+            for user in data_dict:
+                id = user.get("user id")
+                tag = user.get("username")
+                
+                if (str(id) == str(message.get("userId"))) and (tag not in seenTags):
+                    messageWithTag = {
+                        "tag": tag,
+                        "date": message.get("date")
+                    }
+                    messagesWithTags.append(messageWithTag)
+                    seenTags.append(tag)
+       
+
+        return(messagesWithTags)
+
         
-        for user in data_dict:
-            id = user.get("user id")
-            tag = user.get("username")
-            
-            if str(id) in users:
-                activeUserTags.append(tag)
 
-        return(activeUserTags)
-
-        
-
-    def searchAirtable(self,userTags):
+    def searchAirtable(self,usersToUpdate):
         import requests
+        import time
         from datetime import datetime
 
         today = str(datetime.today().strftime('%Y-%d-%m'))
@@ -170,8 +183,10 @@ class Scraper():
         # Replace with the name of the field you want to search in
         field_name = 'telegramHandle'
 
-        for tag in userTags:
+        for user in usersToUpdate:
         # Construct the URL for the search
+            time.sleep(3)
+            tag = user.get("tag") 
             tag = tag.replace("@", "")
             tag = "@" + tag
             url = f'https://api.airtable.com/v0/{base_id}/{table_name}?filterByFormula=({field_name}="{tag}")'
@@ -183,25 +198,29 @@ class Scraper():
             responseData = response.json()
 
             # Get the first record that matches the search
-            record = responseData['records'][0]
+            try:
+                record = responseData['records'][0]
 
-            # Get the ID of the record
-            record_id = record['id']
+                # Get the ID of the record
+                record_id = record['id']
 
-            # Replace with the name of the field you want to input the value in
-            input_field_name = 'activity'
+                # Replace with the name of the field you want to input the value in
+                input_field_name = 'activity'
 
-            # Replace with the value you want to input
-            input_value = today
+                # Replace with the value you want to input
+                input_value = user.get("date")
 
-            # Construct the URL for inputting the value
-            url = f'https://api.airtable.com/v0/{base_id}/{table_name}/{record_id}'
-            
-            # Execute the update
-            response = requests.patch(url, json={"fields": {input_field_name: input_value}}, headers={'Authorization': 'Bearer ' + api_key})
+                # Construct the URL for inputting the value
+                url = f'https://api.airtable.com/v0/{base_id}/{table_name}/{record_id}'
+                
+                # Execute the update
+                response = requests.patch(url, json={"fields": {input_field_name: input_value}}, headers={'Authorization': 'Bearer ' + api_key})
 
-            # Print the status code of the response
-            print(response)
+                # Print the status code of the response
+                print(response)
+            except:
+                print("error with: " + tag)
+                print(responseData)
 
             # print(requests.get(url, headers={'Authorization': 'Bearer ' + api_key}).json())
 
@@ -214,6 +233,6 @@ if __name__ == '__main__':
     telegram = Scraper()
     telegram.connect()
     telegram.getGroups()
-    users = telegram.getUsers()
-    userTags = telegram.getTelegramTags(users)
-    telegram.searchAirtable(userTags)
+    messages = telegram.getMessages()
+    usersToUpdate = telegram.getTelegramTags(messages)
+    telegram.searchAirtable(usersToUpdate)
